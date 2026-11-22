@@ -163,10 +163,33 @@ function buildSeed() {
     { id: 'sg2', by: 'u7', text: 'A quick filter for "waiting on client" would save me time on Mondays.', date: iso(-1) },
   ];
 
+  // Sample change log. "agent" entries stand in for the scheduled AI agent that keeps the live board current.
+  const H = (id, day, min, by, type, itemId, clientId, title, verb, field, from, to, note, source, unread) =>
+    ({ id, date: iso(day), min, by, type, itemId, clientId, title, verb, field: field || '', from: from || '', to: to || '', note: note || '', source: source || '', unread: !!unread });
+  const history = [
+    H('h1', 0, 526, 'agent', 'Task', 't12', 'c6', 'Before and after reel, 30 seconds', 'moved', 'Status', 'In progress', 'For approval', 'Maya posted the 9:16 export in the editing channel and said it is ready for review. Review link added.', 'Team chat, #editing', true),
+    H('h2', 0, 525, 'agent', 'Task', 't4', 'c3', 'Confirm seminar venue capacity', 'flagged', 'Waiting on', '', 'Carla (client)', 'Due today and still no seat count from the client. A second reminder went out yesterday.', 'Daily sweep', true),
+    H('h3', 0, 500, 'u2', 'Task', 't23', 'c0', 'Interview social media VA candidates', 'moved', 'Status', 'To do', 'In progress', '', '', false),
+    H('h4', -1, 1002, 'agent', 'Finance', 'r2', 'c7', 'Pricing change: growth engine without Google ads', 'queued', 'Review queue', '', '$1,200/mo proposed', 'Found in the discovery call notes. Nothing changes in revenue until someone approves it.', 'Daily finance sweep', true),
+    H('h5', -1, 910, 'u1', 'Task', 't33', 'c4', 'Write onboarding welcome email', 'approved', 'Status', 'For approval', 'Done', '', '', false),
+    H('h6', -1, 842, 'agent', 'Task', 't18', 'c11', 'Patient testimonial edit', 'moved', 'Status', 'In progress', 'For approval', 'Review link taken from the editor\'s message.', 'Team chat, #editing', false),
+    H('h7', -1, 690, 'u4', 'Task', 't13', 'c6', 'Review request SMS after appointments', 'sent back', 'Status', 'For approval', 'Revision', 'Client wants the Google link only, no Yelp.', '', false),
+    H('h8', -1, 545, 'agent', 'Task', 't21', 'c1', 'Swap booking calendar to new hygienist hours', 'changed', 'Waiting on', '', 'Dr. Ortiz (client)', 'Ana asked the client for the new hours and has not heard back.', 'Team chat, #operations', false),
+    H('h9', -2, 975, 'u4', 'Task', 't20', 'c1', 'No-show follow-up workflow QA', 'moved', 'Status', 'In progress', 'Done', '', '', false),
+    H('h10', -2, 820, 'u2', 'Client', 'c4', 'c4', 'Luma Wellness Studio', 'changed', 'Status', 'Prospect', 'Onboarding', 'Agreement signed. Kickoff call booked.', '', false),
+    H('h11', -2, 620, 'agent', 'Task', 't26', 'c11', 'A2P 10DLC registration for Peak Physio', 'moved', 'Status', 'In progress', 'Waiting', 'Brand approved. Campaign submitted, now with the carrier.', 'Daily sweep', false),
+    H('h12', -3, 900, 'u2', 'SOP', 's2', 'c0', 'Client-facing onboarding guide', 'changed', 'Steps', '', '', 'Added the 48-hour approval turnaround.', '', false),
+    H('h13', -3, 670, 'u4', 'Task', 't10', 'c5', 'Fix duplicate contacts from calendar sync', 'moved', 'Status', 'In progress', 'Done', 'Calendar set to one-way sync.', '', false),
+    H('h14', -4, 870, 'u4', 'Task', 't30', 'c3', 'Thank-you page and calendar link check', 'moved', 'Status', 'In progress', 'Done', '', '', false),
+    H('h15', -5, 600, 'u4', 'Task', 't28', 'c2', 'Clean up pipeline stages and tags', 'moved', 'Status', 'In progress', 'Done', '', '', false),
+    H('h16', -6, 570, 'u7', 'Task', 't31', 'c0', 'Upload October invoices to the finance folder', 'moved', 'Status', 'To do', 'Done', '', '', false),
+    H('h17', -7, 960, 'u7', 'Task', 't38', 'c11', 'Video testimonial shoot schedule', 'moved', 'Status', 'In progress', 'Done', '', '', false),
+  ];
+
   return {
-    version: 1, seededOn: iso(0),
+    version: 2, seededOn: iso(0),
     team, clients, packages, tasks, events, sops, checklistTemplates, checklists,
-    finance: { mrrHistory, payments, revenue, reviewQueue, needed, recorded: [] },
-    suggestions,
+    finance: { mrrHistory, payments, revenue, reviewQueue, needed, recorded: [], sync: { date: iso(-1), time: '4:42 PM', found: 1 } },
+    suggestions, history,
   };
 }

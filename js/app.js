@@ -39,6 +39,9 @@
     right: '<path d="m9 18 6-6-6-6"/>',
     circleCheck: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
     clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+    history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+    bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+    bot: '<rect x="3" y="8" width="18" height="12" rx="3"/><path d="M12 8V4M8 14h.01M16 14h.01"/><circle cx="12" cy="3" r="1"/>',
   };
   const ic = (n, cls) => `<svg class="i ${cls || ''}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
   const BOT_FACE = `<svg class="bot-face" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#f4f9ff"/><stop offset="1" stop-color="#b9d3ec"/></linearGradient></defs><rect x="29" y="4" width="6" height="8" rx="3" fill="#7fa9cf"/><circle cx="32" cy="5" r="4" fill="#00e5ff"/><rect x="8" y="12" width="48" height="40" rx="18" fill="url(#bg)"/><rect x="14" y="21" width="36" height="20" rx="10" fill="#0b2240"/><ellipse cx="25" cy="31" rx="5" ry="6" fill="#00e5ff"/><ellipse cx="39" cy="31" rx="5" ry="6" fill="#00e5ff"/><rect x="3" y="26" width="6" height="12" rx="3" fill="#7fa9cf"/><rect x="55" y="26" width="6" height="12" rx="3" fill="#7fa9cf"/><path d="M26 46q6 4 12 0" stroke="#0b3fc4" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>`;
@@ -58,11 +61,13 @@
     s.events.forEach((e) => { e.date = addDays(e.date, n); });
     s.clients.forEach((c) => { if (c.nextDate) c.nextDate = addDays(c.nextDate, n); });
     s.suggestions.forEach((g) => { g.date = addDays(g.date, n); });
+    (s.history || []).forEach((h) => { h.date = addDays(h.date, n); });
+    if (s.finance && s.finance.sync) s.finance.sync.date = addDays(s.finance.sync.date, n);
   }
   function load() {
     let s = null;
     try { s = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { s = null; }
-    if (!s || s.version !== 1) {
+    if (!s || s.version !== 2) {
       s = buildSeed();
       const off = diffDays(s.seededOn, todayISO());
       shiftAll(s, off);
@@ -83,6 +88,7 @@
     clients: { status: 'All', view: 'grid' },
     cal: { cursor: todayISO().slice(0, 7) + '-01', view: 'month' },
     team: 'people', checklists: 'progress', approvals: 'mine', sopQ: '',
+    history: { q: '', person: '', client: '', type: '' },
   };
 
   // ---------- helpers ----------
@@ -133,6 +139,32 @@
       <div class="t"><div class="title">${esc(t.title)}</div><div class="meta">${tags(t)}</div></div>
       <div class="due ${dueCls(t.due)}"><span class="dot" style="background:${prioVar(t.priority)}"></span>${t.due ? rel(t.due) : ''}</div>
       ${avatar(t.assigneeId)}
+    </div>`;
+
+  // ---------- history (change log) ----------
+  const AGENT = { id: 'agent', name: 'Ops agent' };
+  const clockOf = (min) => { const h = Math.floor(min / 60); const m = min % 60; return `${((h + 11) % 12) + 1}:${pad(m)} ${h < 12 ? 'AM' : 'PM'}`; };
+  const statusLabel = (k) => (STATUSES.find((s) => s.k === k) || {}).label || k || '';
+  function log(e) {
+    const now = new Date();
+    if (!S.history) S.history = [];
+    S.history.unshift(Object.assign({ id: uid('h'), date: todayISO(), min: now.getHours() * 60 + now.getMinutes(), by: me().id, type: 'Task', itemId: '', clientId: '', title: '', verb: 'changed', field: '', from: '', to: '', note: '', source: '', unread: false }, e));
+    if (S.history.length > 200) S.history.length = 200;
+  }
+  const histSorted = () => (S.history || []).slice().sort((x, y) => (y.date + pad(Math.floor(y.min / 60)) + pad(y.min % 60)).localeCompare(x.date + pad(Math.floor(x.min / 60)) + pad(x.min % 60)));
+  const histWho = (h) => (h.by === 'agent' ? AGENT.name : (user(h.by) || {}).name || 'Someone');
+  const histFace = (h) => (h.by === 'agent' ? `<span class="avatar agent" title="Automated">${ic('bot')}</span>` : avatar(h.by));
+  const histLine = (h) => `<b>${esc(histWho(h))}</b> ${esc(h.verb)} <span class="ht">${esc(h.title)}</span>${h.verb === 'moved' && h.to ? ` to <b>${esc(h.to)}</b>` : ''}`;
+  const histRow = (h, compact) => `
+    <div class="hrow ${h.unread ? 'unread' : ''}" ${h.type === 'Task' && S.tasks.some((t) => t.id === h.itemId) ? `data-act="task" data-id="${h.itemId}"` : h.type === 'Client' && client(h.itemId) ? `data-act="client" data-id="${h.itemId}"` : ''}>
+      ${histFace(h)}
+      <div class="hb">
+        <div class="hl">${histLine(h)}${h.by === 'agent' ? '<span class="abadge">Agent</span>' : ''}</div>
+        <div class="hm">${compact ? '' : `${esc((client(h.clientId) || {}).name || '')} · ${esc(h.type)} · `}${rel(h.date)} ${clockOf(h.min)}</div>
+        ${h.field && (h.from || h.to) ? `<div class="hc"><span>${esc(h.field)}:</span> ${h.from ? `${esc(h.from)} <i>to</i> ` : ''}${esc(h.to)}</div>` : ''}
+        ${h.note ? `<div class="hn">${esc(h.note)}</div>` : ''}
+        ${h.source ? `<div class="hs">${ic('ext')} ${esc(h.source)}</div>` : ''}
+      </div>
     </div>`;
 
   // ---------- views ----------
@@ -319,6 +351,27 @@
         <div class="muted" style="font-size:11.5px;margin-top:8px">${S.clients.filter((c) => c.packageId === p.id && c.status === 'Active').length} active client(s)</div></div>`).join('')}</div>`).join('')}`;
   };
 
+  views.history = () => {
+    const f = ui.history; const q = f.q.toLowerCase();
+    const all = histSorted();
+    const list = all.filter((h) =>
+      (!q || h.title.toLowerCase().includes(q) || (h.note || '').toLowerCase().includes(q)) &&
+      (!f.person || h.by === f.person) && (!f.client || h.clientId === f.client) && (!f.type || h.type === f.type));
+    const types = Array.from(new Set(all.map((h) => h.type)));
+    const days = [];
+    list.slice(0, 80).forEach((h) => { const last = days[days.length - 1]; if (last && last.date === h.date) last.items.push(h); else days.push({ date: h.date, items: [h] }); });
+    const agentN = all.filter((h) => h.by === 'agent').length;
+    return `<div class="page-head"><div><h1>History</h1><p>Every change, who made it and when. ${all.length} entries, ${agentN} made by the agent.</p></div></div>
+      <div class="filters">
+        <input class="input search" placeholder="Search item titles..." value="${esc(f.q)}" data-hfilter="q">
+        <select class="input" data-hfilter="person">${opt('', 'All persons', f.person)}${opt('agent', AGENT.name + ' (automated)', f.person)}${S.team.map((u) => opt(u.id, u.name, f.person)).join('')}</select>
+        <select class="input" data-hfilter="client">${opt('', 'All clients', f.client)}${S.clients.map((c) => opt(c.id, c.name, f.client)).join('')}</select>
+        <select class="input" data-hfilter="type">${opt('', 'All types', f.type)}${types.map((t) => opt(t, t, f.type)).join('')}</select>
+      </div>
+      <div class="card hinfo">${ic('bot')}<div><b>How the live version stays current.</b> A scheduled AI agent reads the team's chat a few times a day, moves the cards that changed and writes down what it saw. Entries marked Agent here are sample data that show what that looks like. Anything you change in this demo is logged below as you.</div></div>
+      ${days.map((d) => `<h2 class="sec hday">${rel(d.date)}${rel(d.date) === short(d.date) ? '' : ` <small>${short(d.date)}</small>`}</h2><div class="card hlist">${d.items.map((h) => histRow(h)).join('')}</div>`).join('') || '<div class="card empty">No changes match these filters.</div>'}`;
+  };
+
   views.team = () => {
     const tab = ui.team;
     const people = `<div class="card" style="overflow-x:auto"><table class="tbl"><thead><tr><th>Name</th><th class="hide-m">Title</th><th class="hide-m">Email</th><th>Role</th><th class="hide-m">Status</th><th></th></tr></thead><tbody>
@@ -431,6 +484,7 @@
         <div class="card chart" style="padding:13px 14px"><h3>Payments by month</h3><div class="lg"><span>Last 12 months</span></div>${barChart(F.payments, pl)}</div>
       </div>
       <h2 class="sec">Review queue · ${F.reviewQueue.length}</h2>
+      ${F.sync ? `<div class="sync">${ic('history')}<span>Last checked ${rel(F.sync.date).toLowerCase()} at ${esc(F.sync.time)} · ${F.sync.found ? `${F.sync.found} new item found` : 'no money news'}. In the live version a daily sweep reads the day's messages for pricing changes and queues them here. Revenue only changes when someone approves. Sample data.</span></div>` : ''}
       ${F.reviewQueue.map((r) => `<div class="card rq"><b>${esc(r.text)}</b><div class="sub">${esc((client(r.clientId) || {}).name || '')} · ${esc(r.amount)}</div>
         <div style="display:flex;gap:8px"><button class="btn sm gold" data-act="rqok" data-id="${r.id}">${ic('check')}Approve</button><button class="btn sm ghost" data-act="rqno" data-id="${r.id}">${ic('x')}Dismiss</button></div>
         <div class="note">${esc(r.note)}</div><div class="muted" style="font-size:11px;margin-top:8px">${ic('ext')} ${esc(r.source)}</div></div>`).join('') || '<div class="card empty">Review queue is clear.</div>'}
@@ -447,7 +501,7 @@
   // ---------- shell ----------
   const NAV = [
     ['overview', 'Overview', 'grid'], ['board', 'Board', 'board'], ['clients', 'Clients', 'users'], ['my-tasks', 'My tasks', 'tasks'],
-    ['calendar', 'Calendar', 'calendar'], ['packages', 'Packages', 'package'], ['team', 'Team', 'user'], ['sops', 'SOPs', 'book'],
+    ['calendar', 'Calendar', 'calendar'], ['packages', 'Packages', 'package'], ['history', 'History', 'history'], ['team', 'Team', 'user'], ['sops', 'SOPs', 'book'],
     ['checklists', 'Checklists', 'checks'], ['approvals', 'For approval', 'approve', true], ['finance', 'Finance', 'dollar', true],
   ];
   const TITLES = Object.fromEntries(NAV.map((n) => [n[0], n[1]]));
@@ -468,6 +522,7 @@
           <button class="searchbtn" data-act="cmdk">${ic('search')}<span>Search tasks and clients...</span><kbd>Ctrl K</kbd></button>
           <div class="demo-pill"><span class="lbl">Demo workspace · sample data</span><button data-act="reset">Reset</button></div>
           <button class="iconbtn" data-act="theme" aria-label="Toggle theme" id="themeBtn"></button>
+          <button class="iconbtn bell" data-act="bell" aria-label="Recent changes" id="bellBtn"></button>
           ${avatar(me().id, true)}
         </header>
         <main class="content" id="view"></main>
@@ -501,6 +556,10 @@
     v.innerHTML = views[route]();
     document.title = `${TITLES[route]} · JT FlowOps`;
     $('#themeBtn').innerHTML = ic(document.documentElement.classList.contains('dark') ? 'sun' : 'moon');
+    if (route === 'history' && (S.history || []).some((h) => h.unread)) { S.history.forEach((h) => { h.unread = false; }); save(); }
+    const unread = (S.history || []).filter((h) => h.unread).length;
+    $('#bellBtn').innerHTML = ic('bell') + (unread ? `<span class="bdot">${unread}</span>` : '');
+    $('#bellBtn').title = unread ? `${unread} new change${unread === 1 ? '' : 's'}` : 'Recent changes';
     if (route === 'board') bindDnD();
   }
 
@@ -519,7 +578,7 @@
         let id = dragId; try { id = e.dataTransfer.getData('text/plain') || dragId; } catch (x) { /* ignore */ }
         dragId = null;
         const t = S.tasks.find((x) => x.id === id);
-        if (t && t.status !== col.dataset.col) { setStatus(t, col.dataset.col); save(); render(); toast(`Moved to ${STATUSES.find((s) => s.k === t.status).label}`); }
+        if (t && t.status !== col.dataset.col) { const was = statusLabel(t.status); setStatus(t, col.dataset.col); log({ itemId: t.id, clientId: t.clientId, title: t.title, verb: 'moved', field: 'Status', from: was, to: statusLabel(t.status) }); save(); render(); toast(`Moved to ${STATUSES.find((s) => s.k === t.status).label}`); }
       });
     });
   }
@@ -561,7 +620,8 @@
       <div><label class="f">Waiting on</label><input class="input" id="f_waiting" value="${esc(t.waitingOn)}" placeholder="e.g. Client"></div></div>
       <label class="f">Raw link</label><input class="input" id="f_raw" value="${esc(t.links.raw)}" placeholder="https://">
       <label class="f">Review link</label><input class="input" id="f_review" value="${esc(t.links.review)}" placeholder="https://">
-      <label class="f">Final link</label><input class="input" id="f_final" value="${esc(t.links.final)}" placeholder="https://">`,
+      <label class="f">Final link</label><input class="input" id="f_final" value="${esc(t.links.final)}" placeholder="https://">
+      ${id ? ((hs) => (hs.length ? `<label class="f">History</label><div class="hlist mini">${hs.map((h) => histRow(Object.assign({}, h, { unread: false, itemId: '' }), true)).join('')}</div>` : ''))(histSorted().filter((h) => h.itemId === id).slice(0, 6)) : ''}`,
       `${id ? `<button class="btn danger" data-act="deltask" data-id="${id}">${ic('trash')}Delete</button>` : ''}<button class="btn gold" data-act="savetask" data-id="${id}">Save</button><button class="btn" data-act="close">Cancel</button>`);
     setTimeout(() => $('#f_title').focus(), 50);
   }
@@ -660,7 +720,11 @@
       const s = sop || S.sops[0];
       return `From the SOP "<b>${esc(s.title)}</b>":${li(s.steps, esc)}`;
     }
-    return 'I can answer from this workspace. Try: what is due this week, what is overdue, what is waiting on approval, who has the most on their plate, a client name, or "how do we" plus a process.';
+    if (/what changed|recent|activity|history|latest/.test(q)) {
+      const hs = histSorted().slice(0, 5);
+      return hs.length ? `The last ${hs.length} changes:${li(hs, (h) => `${esc(histWho(h))} ${esc(h.verb)} "${esc(h.title)}"${h.verb === 'moved' && h.to ? ' to ' + esc(h.to) : ''} (${rel(h.date).toLowerCase()})`)}Open <b>History</b> for the full log.` : 'Nothing has changed yet.';
+    }
+    return 'I can answer from this workspace. Try: what is due this week, what is overdue, what is waiting on approval, what changed recently, who has the most on their plate, a client name, or "how do we" plus a process.';
   }
 
   // ---------- actions ----------
@@ -671,21 +735,34 @@
     savetask: (el) => {
       const title = val('f_title'); if (!title) { toast('Add a title first'); return; }
       let t = S.tasks.find((x) => x.id === el.dataset.id);
+      const isNew = !t;
       if (!t) { t = { id: uid('t'), links: {}, approval: null }; S.tasks.push(t); }
-      const prevStatus = t.status;
+      const prevStatus = t.status; const before = isNew ? null : { details: t.details, priority: t.priority, clientId: t.clientId, assigneeId: t.assigneeId, due: t.due, waitingOn: t.waitingOn, title: t.title };
       Object.assign(t, { title, details: val('f_details'), priority: val('f_priority'), clientId: val('f_client'), assigneeId: val('f_assignee'), due: val('f_due'), waitingOn: val('f_waiting'), links: { raw: val('f_raw'), review: val('f_review'), final: val('f_final') } });
       t.status = prevStatus; setStatus(t, val('f_status'));
+      if (isNew) log({ itemId: t.id, clientId: t.clientId, title: t.title, verb: 'created', field: 'Status', to: statusLabel(t.status) });
+      else {
+        if (prevStatus !== t.status) log({ itemId: t.id, clientId: t.clientId, title: t.title, verb: 'moved', field: 'Status', from: statusLabel(prevStatus), to: statusLabel(t.status) });
+        const names = { title: 'Title', details: 'Details', priority: 'Priority', clientId: 'Client', assigneeId: 'Assignee', due: 'Due date', waitingOn: 'Waiting on' };
+        const changed = Object.keys(names).filter((k) => (before[k] || '') !== (t[k] || ''));
+        if (changed.length === 1 && changed[0] === 'waitingOn') log({ itemId: t.id, clientId: t.clientId, title: t.title, verb: 'changed', field: 'Waiting on', from: before.waitingOn, to: t.waitingOn || 'nobody' });
+        else if (changed.length === 1 && changed[0] === 'assigneeId') log({ itemId: t.id, clientId: t.clientId, title: t.title, verb: 'reassigned', field: 'Assignee', from: (user(before.assigneeId) || {}).name || '', to: (user(t.assigneeId) || {}).name || '' });
+        else if (changed.length) log({ itemId: t.id, clientId: t.clientId, title: t.title, verb: 'changed', field: 'Fields', to: changed.map((k) => names[k]).join(', ') });
+      }
       save(); closeAll(); render(); toast('Task saved');
     },
-    deltask: (el) => { S.tasks = S.tasks.filter((t) => t.id !== el.dataset.id); save(); closeAll(); render(); toast('Task deleted'); },
+    deltask: (el) => { const t = S.tasks.find((x) => x.id === el.dataset.id); if (t) log({ itemId: t.id, clientId: t.clientId, title: t.title, verb: 'deleted' }); S.tasks = S.tasks.filter((x) => x.id !== el.dataset.id); save(); closeAll(); render(); toast('Task deleted'); },
     boardview: (el) => { ui.board.view = el.dataset.v; render(); },
     client: (el) => { closeAll(); clientDrawer(el.dataset.id); },
     newclient: () => clientDrawer(''),
     saveclient: (el) => {
       const name = val('c_name'); if (!name) { toast('Add a business name'); return; }
-      let c = client(el.dataset.id);
+      let c = client(el.dataset.id); const newC = !c; const wasStatus = c ? c.status : '';
       if (!c) { c = { id: uid('c') }; S.clients.push(c); }
       Object.assign(c, { name, contact: val('c_contact'), location: val('c_loc'), status: val('c_status'), packageId: val('c_pkg') || null, next: val('c_next'), nextDate: val('c_nextd') });
+      if (newC) log({ type: 'Client', itemId: c.id, clientId: c.id, title: c.name, verb: 'added', field: 'Status', to: c.status });
+      else if (wasStatus !== c.status) log({ type: 'Client', itemId: c.id, clientId: c.id, title: c.name, verb: 'changed', field: 'Status', from: wasStatus, to: c.status });
+      else log({ type: 'Client', itemId: c.id, clientId: c.id, title: c.name, verb: 'changed', field: 'Details', to: 'updated' });
       save(); closeAll(); render(); toast('Client saved');
     },
     drive: () => toast('In the live version this opens the client\'s Google Drive folder'),
@@ -740,6 +817,7 @@
     sug2task: (el) => {
       const g = S.suggestions.find((x) => x.id === el.dataset.id);
       S.tasks.push({ id: uid('t'), title: 'Dashboard idea: ' + g.text.slice(0, 80), details: g.text, status: 'todo', priority: 'low', clientId: 'c0', assigneeId: me().id, due: addDays(todayISO(), 7), waitingOn: '', links: { raw: '', review: '', final: '' }, approval: null });
+      { const nt = S.tasks[S.tasks.length - 1]; log({ itemId: nt.id, clientId: 'c0', title: nt.title, verb: 'created', field: 'Status', to: 'To do', note: 'From the suggestion box.' }); }
       S.suggestions = S.suggestions.filter((x) => x.id !== g.id); save(); render(); toast('Added to the board');
     },
     sugdel: (el) => { S.suggestions = S.suggestions.filter((x) => x.id !== el.dataset.id); save(); render(); },
@@ -779,7 +857,7 @@
     startchk2: (el) => { S.checklists.push({ id: uid('k'), templateId: el.dataset.id, clientId: val('k_client'), done: [] }); ui.checklists = 'progress'; save(); closeAll(); render(); toast('Checklist started'); },
     aprtab: (el) => { ui.approvals = el.dataset.v; render(); },
     review: () => toast('In the live version this opens the Frame.io or Drive review link'),
-    approve: (el) => { const t = S.tasks.find((x) => x.id === el.dataset.id); setStatus(t, 'done'); save(); render(); toast('Approved and moved to Done'); },
+    approve: (el) => { const t = S.tasks.find((x) => x.id === el.dataset.id); setStatus(t, 'done'); log({ itemId: t.id, clientId: t.clientId, title: t.title, verb: 'approved', field: 'Status', from: 'For approval', to: 'Done' }); save(); render(); toast('Approved and moved to Done'); },
     changes: (el) => {
       modal('Request changes', `<label class="f">What needs to change?</label><textarea class="input" id="chg" placeholder="Be specific: timestamp, line, or element."></textarea>`,
         `<button class="btn" data-act="close">Cancel</button><button class="btn gold" data-act="changes2" data-id="${el.dataset.id}">Send back</button>`);
@@ -787,7 +865,7 @@
     changes2: (el) => {
       const t = S.tasks.find((x) => x.id === el.dataset.id); const note = val('chg');
       if (note) t.details = (t.details ? t.details + '\n\n' : '') + `Changes requested ${short(todayISO())}: ${note}`;
-      setStatus(t, 'revision'); save(); closeAll(); render(); toast('Sent back for revision');
+      setStatus(t, 'revision'); log({ itemId: t.id, clientId: t.clientId, title: t.title, verb: 'sent back', field: 'Status', from: 'For approval', to: 'Revision', note: note || '' }); save(); closeAll(); render(); toast('Sent back for revision');
     },
     payment: () => modal('Record payment', `<label class="f">Client</label><select class="input" id="pay_c">${S.clients.filter((c) => c.id !== 'c0').map((c) => opt(c.id, c.name, '')).join('')}</select>
       <div class="grid2"><div><label class="f">Amount (USD)</label><input class="input" id="pay_a" inputmode="numeric" placeholder="1500"></div><div><label class="f">Date</label><input class="input" type="date" id="pay_d" value="${todayISO()}"></div></div>`,
@@ -804,9 +882,10 @@
     rqok: (el) => {
       const r = S.finance.reviewQueue.find((x) => x.id === el.dataset.id);
       S.finance.revenue.unshift({ clientId: r.clientId, pkg: 'Updated pricing', type: 'Recurring', amount: r.amount + '/mo', added: true });
+      log({ type: 'Finance', itemId: r.id, clientId: r.clientId, title: 'Pricing change for ' + ((client(r.clientId) || {}).name || 'a client'), verb: 'approved', field: 'Revenue', to: r.amount + '/mo' });
       S.finance.reviewQueue = S.finance.reviewQueue.filter((x) => x.id !== r.id); save(); render(); toast('Approved and added to revenue');
     },
-    rqno: (el) => { S.finance.reviewQueue = S.finance.reviewQueue.filter((x) => x.id !== el.dataset.id); save(); render(); toast('Dismissed'); },
+    rqno: (el) => { const r = S.finance.reviewQueue.find((x) => x.id === el.dataset.id); if (r) log({ type: 'Finance', itemId: r.id, clientId: r.clientId, title: 'Pricing change for ' + ((client(r.clientId) || {}).name || 'a client'), verb: 'dismissed' }); S.finance.reviewQueue = S.finance.reviewQueue.filter((x) => x.id !== el.dataset.id); save(); render(); toast('Dismissed'); },
     needok: (el) => {
       const inp = document.querySelector(`[data-need="${el.dataset.id}"]`); const a = parseFloat((inp.value || '').replace(/[^0-9.]/g, ''));
       if (!a) { toast('Enter an amount'); return; }
@@ -823,6 +902,7 @@
       try { localStorage.setItem('jtflowops-theme', dark ? 'dark' : 'light'); } catch (e) { /* ignore */ }
       render();
     },
+    bell: () => { closeAll(); location.hash = '#/history'; },
     collapse: () => document.body.classList.toggle('sidebar-collapsed'),
     mobnav: () => { document.body.classList.add('nav-open'); openOverlay(); },
     reset: () => modal('Reset demo data?', '<p style="font-size:13px">This puts every task, client and number back to the original sample data. Anything you changed in this browser is cleared.</p>',
@@ -865,9 +945,13 @@
       const f = e.target.dataset && e.target.dataset.filter;
       if (f === 'sop') { ui.sopQ = e.target.value; const pos = e.target.selectionStart; render(); const n = $('[data-filter="sop"]'); n.focus(); n.setSelectionRange(pos, pos); }
       else if (f === 'q') { ui.board.q = e.target.value; const pos = e.target.selectionStart; render(); const n = $('[data-filter="q"]'); n.focus(); n.setSelectionRange(pos, pos); }
+      const hf = e.target.dataset && e.target.dataset.hfilter;
+      if (hf === 'q') { ui.history.q = e.target.value; const pos = e.target.selectionStart; render(); const n = $('[data-hfilter="q"]'); n.focus(); n.setSelectionRange(pos, pos); }
       if (e.target.id === 'sugText') $('#sugCount').textContent = `${e.target.value.length}/2000`;
     });
     document.addEventListener('change', (e) => {
+      const hf = e.target.dataset && e.target.dataset.hfilter;
+      if (hf && hf !== 'q') { ui.history[hf] = e.target.value; render(); return; }
       const f = e.target.dataset && e.target.dataset.filter;
       if (f && f !== 'q' && f !== 'sop') { ui.board[f] = e.target.value; if (f === 'waiting' && location.hash.includes('?')) history.replaceState(null, '', '#/board'); render(); }
     });
